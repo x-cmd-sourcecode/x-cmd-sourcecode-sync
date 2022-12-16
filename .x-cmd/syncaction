@@ -1,0 +1,4 @@
+
+git clone git@github.com:x-cmd/sourcecode
+cd sourcecode
+xws sync

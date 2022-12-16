@@ -1,0 +1,20 @@
+name: Sync Repos
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'
+
+jobs:
+  SyncBot:
+    runs-on: ubuntu-latest
+    env:
+      ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}
+      git_user: lijunhao
+      git_email: l@x-cmd.com
+      CONCURRENCY: 10
+    steps:
+      - name: main
+        uses: x-cmd/action@main
+        timeout-minutes: 8
+        with:
+          code: xws syncaction || exit
