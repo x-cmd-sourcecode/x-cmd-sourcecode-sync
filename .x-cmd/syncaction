@@ -4,10 +4,13 @@
 # Strategy:
 # - Clone the catalog (x-cmd-sourcecode/sourcecode) once
 # - Run backups in parallel via xargs (CONCURRENCY from env, default 10)
-# - GitHub is the primary target; Gitee push failures don't abort the run
-#   (some target repos may not exist on Gitee yet — the user will create
-#   them in batch once they wire up a Gitee API token)
-# - Each entry is a self-contained shell snippet so xargs can fork them
+# - For each lib/* entry: shallow bare clone upstream, push refs to the
+#   GitHub target. Gitee target is best-effort (most repos don't exist
+#   there yet; see follow-up to create them in batch).
+# - Shallow clone (--depth 1) is fine for a daily mirror: we only need the
+#   tip of each ref. x gitb backup used a full clone which timed out on
+#   huge repos (curl/openssl/neovim/lua all 10+ min each).
+# - Catalog files like README.removed are skipped (non GIT-HTTP).
 
 git clone git@github.com:x-cmd-sourcecode/sourcecode.git /tmp/sourcecode
 cd /tmp/sourcecode || exit 1
@@ -25,21 +28,48 @@ for entry in lib/*; do
         continue
     }
 
-    # Each job is a self-contained snippet; the loop is xargs -d '\n' driven.
     printf '%s\n' "$SOURCE_TGTNAME|$SOURCE_URL"
 done | xargs -d '\n' -P "${CONCURRENCY:-10}" -I {} sh -c '
     entry="{}"
     name="${entry%%|*}"
     url="${entry#*|}"
     echo "==> backup: $name  (from $url)"
-    # GitHub target is the primary mirror — always run.
-    x gitb backup "$url" \
-        "git@github.com:x-cmd-sourcecode/$name" \
-        || { echo "FAIL github: $name"; exit 0; }
-    # Gitee target is best-effort: skip if the target repo does not exist on
-    # Gitee (404 from `git push`). We do NOT abort the whole workflow on
-    # Gitee failure — the GitHub mirror is the contract.
-    x gitb backup "$url" \
-        "git@gitee.com:x-cmd-sourcecode/$name" \
-        2>&1 | sed "s/^/  [gitee] /" || echo "  [gitee] skip-or-fail: $name"
+
+    workdir=$(mktemp -d)
+    cd "$workdir" || exit 1
+
+    # Shallow bare clone — tip of every ref, no history. Fast even for
+    # huge repos like curl/openssl.
+    if ! git clone --depth 1 --bare --no-tags "$url" "$name" 2>/dev/null; then
+        # Some upstreams don'\''t accept shallow clone (e.g. server missing
+        # upload-pack.allowfilter). Fall back to no-tags full bare.
+        git clone --bare "$url" "$name" 2>/dev/null || {
+            echo "FAIL clone: $name  (from $url)"
+            cd /; rm -rf "$workdir"
+            exit 0
+        }
+    fi
+    cd "$name" || { cd /; rm -rf "$workdir"; exit 0; }
+
+    # Fetch all branches/tags shallowly so push --mirror carries them.
+    git remote remove origin 2>/dev/null
+    git remote add origin "$url"
+    git fetch --depth 1 origin "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" 2>/dev/null || true
+
+    # Push to GitHub — the contract.
+    if git push --mirror "git@github.com:x-cmd-sourcecode/$name" 2>&1 | sed "s/^/  [github] /"; then
+        echo "  [github] OK: $name"
+    else
+        echo "FAIL github: $name"
+    fi
+
+    # Push to Gitee — best-effort. Repos may not exist yet (404).
+    if git push --mirror "git@gitee.com:x-cmd-sourcecode/$name" 2>&1 | sed "s/^/  [gitee] /"; then
+        echo "  [gitee] OK: $name"
+    else
+        echo "  [gitee] skip-or-fail: $name"
+    fi
+
+    cd /
+    rm -rf "$workdir"
 '

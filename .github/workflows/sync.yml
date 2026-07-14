@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: main
         uses: x-cmd/action@main
-        timeout-minutes: 30
+        timeout-minutes: 60
         with:
           # prehook: x-cmd-action's ___x_cmd_ghaction_init runs in a subshell,
           # so the ssh-agent env vars it sets are lost before the script runs.
