@@ -3,80 +3,78 @@
 #
 # Strategy:
 # - Clone the catalog (x-cmd-sourcecode/sourcecode) once
-# - Run backups in parallel via xargs (CONCURRENCY from env, default 10)
-# - For each lib/* entry: shallow bare clone upstream, push refs to the
-#   GitHub target. Gitee target is best-effort (most repos don't exist
-#   there yet; see follow-up to create them in batch).
-# - Shallow clone (--depth 1) is fine for a daily mirror: we only need the
-#   tip of each ref. x gitb backup used a full clone which timed out on
-#   huge repos (curl/openssl/neovim/lua all 10+ min each).
-# - Catalog files like README.removed are skipped (non GIT-HTTP).
+# - For each lib/* entry: shallow bare clone upstream, push refs to GitHub
+#   and Gitee. The backup shell snippet is written to a per-job .sh file
+#   (avoids the sh -c quoting nightmare)
+# - xargs fans out across CONCURRENCY slots (default 10)
+# - Capture real git push exit codes (not sed's) via "rc=..." output
+
+set -u
 
 git clone git@github.com:x-cmd-sourcecode/sourcecode.git /tmp/sourcecode
 cd /tmp/sourcecode || exit 1
 
-# Emit one job per lib entry; xargs fans them out.
+JOBDIR=$(mktemp -d)
+
+# Write a per-job script template. The template has placeholders
+# that get substituted with name/url.
+cat > "$JOBDIR/job.sh" <<'TEMPLATE'
+#!/bin/sh
+name="$1"
+url="$2"
+workdir=$(mktemp -d)
+cd "$workdir" || exit 1
+
+echo "==> backup: $name  (from $url)"
+
+# Shallow bare clone — tip of every ref, no history. Fast even for huge
+# repos like curl/openssl.
+if ! git clone --depth 1 --bare --no-tags "$url" "$name" 2>/dev/null; then
+    # Fall back to full bare if shallow not allowed by server
+    git clone --bare "$url" "$name" 2>/dev/null || {
+        echo "FAIL clone: $name  (from $url)"
+        cd /; rm -rf "$workdir"; exit 0
+    }
+fi
+cd "$name" || { cd /; rm -rf "$workdir"; exit 0; }
+
+# Fetch all branches/tags shallowly so push --mirror carries them.
+git remote remove origin 2>/dev/null
+git remote add origin "$url"
+git fetch --depth 1 origin "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" 2>/dev/null || true
+
+# Push to GitHub — the contract.
+gh_output=$(git push --mirror "git@github.com:x-cmd-sourcecode/$name" 2>&1)
+gh_rc=$?
+echo "$gh_output" | sed "s/^/  [github] /"
+if [ "$gh_rc" = "0" ]; then
+    echo "  [github] OK: $name"
+else
+    echo "FAIL github: $name (rc=$gh_rc)"
+fi
+
+# Push to Gitee — best-effort. Repos may not exist yet (404 from ssh).
+gt_output=$(git push --mirror "git@gitee.com:x-cmd-sourcecode/$name" 2>&1)
+gt_rc=$?
+echo "$gt_output" | sed "s/^/  [gitee] /"
+if [ "$gt_rc" = "0" ]; then
+    echo "  [gitee] OK: $name"
+else
+    echo "  [gitee] skip-or-fail: $name (rc=$gt_rc)"
+fi
+
+cd /
+rm -rf "$workdir"
+TEMPLATE
+chmod +x "$JOBDIR/job.sh"
+
+# Emit name|url per catalog entry; skip non GIT-HTTP (e.g. lib/README.removed).
 for entry in lib/*; do
     [ -f "$entry" ] || continue
-    SOURCE_TYPE=
-    SOURCE_URL=
-    SOURCE_TGTNAME=
     . "$entry"
+    [ "${SOURCE_TYPE:-}" = "GIT-HTTP" ] || continue
+    printf '%s\n' "${SOURCE_TGTNAME}|${SOURCE_URL}"
+done | xargs -d '\n' -P "${CONCURRENCY:-10}" -I {} "$JOBDIR/job.sh" {}
 
-    [ "$SOURCE_TYPE" = "GIT-HTTP" ] || {
-        echo "skip (non GIT-HTTP): $entry"
-        continue
-    }
-
-    printf '%s\n' "$SOURCE_TGTNAME|$SOURCE_URL"
-done | xargs -d '\n' -P "${CONCURRENCY:-10}" -I {} sh -c '
-    entry="{}"
-    name="${entry%%|*}"
-    url="${entry#*|}"
-    echo "==> backup: $name  (from $url)"
-
-    workdir=$(mktemp -d)
-    cd "$workdir" || exit 1
-
-    # Shallow bare clone — tip of every ref, no history. Fast even for
-    # huge repos like curl/openssl.
-    if ! git clone --depth 1 --bare --no-tags "$url" "$name" 2>/dev/null; then
-        # Some upstreams don'\''t accept shallow clone (e.g. server missing
-        # upload-pack.allowfilter). Fall back to no-tags full bare.
-        git clone --bare "$url" "$name" 2>/dev/null || {
-            echo "FAIL clone: $name  (from $url)"
-            cd /; rm -rf "$workdir"
-            exit 0
-        }
-    fi
-    cd "$name" || { cd /; rm -rf "$workdir"; exit 0; }
-
-    # Fetch all branches/tags shallowly so push --mirror carries them.
-    git remote remove origin 2>/dev/null
-    git remote add origin "$url"
-    git fetch --depth 1 origin "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" 2>/dev/null || true
-
-    # Push to GitHub — the contract. Use PIPESTATUS to capture git's actual
-    # exit code (the pipe's ${PIPESTATUS[0]}), not sed's.
-    gh_log=$(git push --mirror "git@github.com:x-cmd-sourcecode/$name" 2>&1; echo "EXIT=$?")
-    gh_rc=$(echo "$gh_log" | tail -1 | sed 's/EXIT=//')
-    echo "$gh_log" | grep -v '^EXIT=' | sed "s/^/  [github] /"
-    if [ "$gh_rc" = "0" ]; then
-        echo "  [github] OK: $name"
-    else
-        echo "FAIL github: $name (rc=$gh_rc)"
-    fi
-
-    # Push to Gitee — best-effort. Repos may not exist yet (404 from ssh).
-    gt_log=$(git push --mirror "git@gitee.com:x-cmd-sourcecode/$name" 2>&1; echo "EXIT=$?")
-    gt_rc=$(echo "$gt_log" | tail -1 | sed 's/EXIT=//')
-    echo "$gt_log" | grep -v '^EXIT=' | sed "s/^/  [gitee] /"
-    if [ "$gt_rc" = "0" ]; then
-        echo "  [gitee] OK: $name"
-    else
-        echo "  [gitee] skip-or-fail: $name (rc=$gt_rc)"
-    fi
-
-    cd /
-    rm -rf "$workdir"
-'
+# Cleanup
+rm -rf "$JOBDIR"
