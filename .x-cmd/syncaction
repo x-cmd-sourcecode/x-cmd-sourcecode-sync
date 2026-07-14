@@ -45,26 +45,32 @@ git remote remove origin 2>/dev/null
 git remote add origin "$url"
 git fetch --depth 1 origin "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" 2>/dev/null || true
 
-# Push to GitHub — the contract. Use --all --tags (not --mirror) so we don't
-# try to delete remote refs that the local clone doesn't carry (GitHub
-# refuses to delete the default branch, e.g. main on curl/lua).
-gh_output=$(git push --all --tags "git@github.com:x-cmd-sourcecode/$name" 2>&1)
+# Push to GitHub — the contract. Two separate pushes because git forbids
+# combining --all and --tags. --all (not --mirror) avoids the
+# "refusing to delete default branch" rejection on GitHub.
+gh_output=$(git push --all "git@github.com:x-cmd-sourcecode/$name" 2>&1)
 gh_rc=$?
+gh_tags_output=$(git push --tags "git@github.com:x-cmd-sourcecode/$name" 2>&1)
+gh_tags_rc=$?
 echo "$gh_output" | sed "s/^/  [github] /"
-if [ "$gh_rc" = "0" ]; then
+echo "$gh_tags_output" | sed "s/^/  [github-tags] /"
+if [ "$gh_rc" = "0" ] && [ "$gh_tags_rc" = "0" ]; then
     echo "  [github] OK: $name"
 else
-    echo "FAIL github: $name (rc=$gh_rc)"
+    echo "FAIL github: $name (rc all=$gh_rc tags=$gh_tags_rc)"
 fi
 
 # Push to Gitee — best-effort. Repos may not exist yet (404 from ssh).
-gt_output=$(git push --all --tags "git@gitee.com:x-cmd-sourcecode/$name" 2>&1)
+gt_output=$(git push --all "git@gitee.com:x-cmd-sourcecode/$name" 2>&1)
 gt_rc=$?
+gt_tags_output=$(git push --tags "git@gitee.com:x-cmd-sourcecode/$name" 2>&1)
+gt_tags_rc=$?
 echo "$gt_output" | sed "s/^/  [gitee] /"
-if [ "$gt_rc" = "0" ]; then
+echo "$gt_tags_output" | sed "s/^/  [gitee-tags] /"
+if [ "$gt_rc" = "0" ] && [ "$gt_tags_rc" = "0" ]; then
     echo "  [gitee] OK: $name"
 else
-    echo "  [gitee] skip-or-fail: $name (rc=$gt_rc)"
+    echo "  [gitee] skip-or-fail: $name (rc all=$gt_rc tags=$gt_tags_rc)"
 fi
 
 cd /
