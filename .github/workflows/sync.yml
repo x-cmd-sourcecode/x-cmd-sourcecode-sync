@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: main
         uses: x-cmd/action@main
-        timeout-minutes: 8
+        timeout-minutes: 30
         with:
           # prehook: x-cmd-action's ___x_cmd_ghaction_init runs in a subshell,
           # so the ssh-agent env vars it sets are lost before the script runs.
@@ -30,10 +30,4 @@ jobs:
             chmod 600 ~/.ssh/id_rsa
             ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
             ssh-keyscan -H gitee.com >> ~/.ssh/known_hosts 2>/dev/null
-            echo "--- test github ---"
-            ssh -T -o ConnectTimeout=5 -i ~/.ssh/id_rsa git@github.com 2>&1 | head -3
-            echo "--- test gitee ---"
-            ssh -T -o ConnectTimeout=5 -i ~/.ssh/id_rsa git@gitee.com 2>&1 | head -3
-            echo "--- test gitee specific repo (write test) ---"
-            GIT_SSH_COMMAND="ssh -i ~/.ssh/id_rsa -o ConnectTimeout=5" git ls-remote git@gitee.com:x-cmd-sourcecode/oh-my-posh.git 2>&1 | head -3
           script: .x-cmd/syncaction
