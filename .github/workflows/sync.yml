@@ -2,7 +2,10 @@ name: Sync Repos
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    # Beijing 12:00  = UTC 04:00
+    - cron: '0 4 * * *'
+    # UTC 12:00       = Beijing 20:00
+    - cron: '0 12 * * *'
 
 jobs:
   SyncBot:
