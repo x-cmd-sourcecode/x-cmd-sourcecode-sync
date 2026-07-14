@@ -1,4 +1,32 @@
 
-git clone git@github.com:x-cmd/sourcecode
-cd sourcecode
-xws sync
+# Modernized syncaction for x-cmd-action (post-2022 syntax update)
+#
+# Was: git clone ... && cd sourcecode && xws sync
+#   - `xws` was an alias for `x ws` that no longer exists in current x-cmd
+# Now: clone catalog, iterate lib/* directly, call `x gitb backup` per entry.
+# The catalog's own .x-cmd/sync had a `cd $WSROOT` bug (workspace != catalog
+# dir), so we don't rely on it — re-implement the loop here.
+
+git clone https://github.com/x-cmd/sourcecode.git /tmp/sourcecode
+cd /tmp/sourcecode || exit 1
+
+for entry in lib/*; do
+    [ -f "$entry" ] || continue
+    SOURCE_TYPE=
+    SOURCE_URL=
+    SOURCE_TGTNAME=
+    . "$entry"
+
+    case "$SOURCE_TYPE" in
+        GIT-HTTP)
+            echo "==> backup: $SOURCE_TGTNAME  (from $SOURCE_URL)"
+            x gitb backup "$SOURCE_URL" \
+                "git@gitee.com:x-cmd-sourcecode/$SOURCE_TGTNAME" \
+                "git@github.com:x-cmd-sourcecode/$SOURCE_TGTNAME" \
+                || echo "FAIL: $SOURCE_TGTNAME"
+            ;;
+        *)
+            x:error "Unknown SOURCE_TYPE '$SOURCE_TYPE' in $entry"
+            ;;
+    esac
+done

@@ -20,4 +20,8 @@ jobs:
         uses: x-cmd/action@main
         timeout-minutes: 8
         with:
-          code: xws syncaction || exit
+          # Modernized invocation: was `xws syncaction` but `xws` (alias
+          # for `x ws`) was removed from x-cmd. We use the `script:` input
+          # so the action sources the .x-cmd/syncaction file directly out
+          # of the workspace (no shell path wrangling needed).
+          script: .x-cmd/syncaction
