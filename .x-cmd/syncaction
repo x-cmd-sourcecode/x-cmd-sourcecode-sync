@@ -20,8 +20,10 @@ JOBDIR=$(mktemp -d)
 # that get substituted with name/url.
 cat > "$JOBDIR/job.sh" <<'TEMPLATE'
 #!/bin/sh
-name="$1"
-url="$2"
+# xargs -I {} passes the whole line as a single arg, so split it here.
+arg="$1"
+name="${arg%%|*}"
+url="${arg#*|}"
 workdir=$(mktemp -d)
 cd "$workdir" || exit 1
 
