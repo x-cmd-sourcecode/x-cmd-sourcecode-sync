@@ -29,4 +29,8 @@ jobs:
             printf '%s\n' "$ssh_key" > ~/.ssh/id_rsa
             chmod 600 ~/.ssh/id_rsa
             ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
+            echo "--- ssh -T git@github.com ---"
+            ssh -T -o ConnectTimeout=5 git@github.com 2>&1 | head -3
+            echo "--- ssh test (specific repos) ---"
+            GIT_SSH_COMMAND="ssh -v -o ConnectTimeout=5" git ls-remote git@github.com:x-cmd-sourcecode/sourcecode.git 2>&1 | grep -E "permission denied|authenticated|Hi |granted" | head -5
           script: .x-cmd/syncaction
