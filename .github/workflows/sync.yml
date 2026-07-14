@@ -16,6 +16,14 @@ jobs:
       git_email: l@x-cmd.com
       CONCURRENCY: 10
     steps:
+      - name: debug-ssh
+        run: |
+          echo "--- ssh dir ---"
+          ls -la ~/.ssh/ 2>&1 | head -10
+          echo "--- ssh-agent ---"
+          ssh-add -l 2>&1 | head -5
+          echo "--- github ssh test (x-cmd/sourcecode) ---"
+          ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -E "Authentications|denied|authenticated|publickey" | head -10
       - name: main
         uses: x-cmd/action@main
         timeout-minutes: 8
