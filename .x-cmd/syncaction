@@ -45,8 +45,10 @@ git remote remove origin 2>/dev/null
 git remote add origin "$url"
 git fetch --depth 1 origin "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" 2>/dev/null || true
 
-# Push to GitHub — the contract.
-gh_output=$(git push --mirror "git@github.com:x-cmd-sourcecode/$name" 2>&1)
+# Push to GitHub — the contract. Use --all --tags (not --mirror) so we don't
+# try to delete remote refs that the local clone doesn't carry (GitHub
+# refuses to delete the default branch, e.g. main on curl/lua).
+gh_output=$(git push --all --tags "git@github.com:x-cmd-sourcecode/$name" 2>&1)
 gh_rc=$?
 echo "$gh_output" | sed "s/^/  [github] /"
 if [ "$gh_rc" = "0" ]; then
@@ -56,7 +58,7 @@ else
 fi
 
 # Push to Gitee — best-effort. Repos may not exist yet (404 from ssh).
-gt_output=$(git push --mirror "git@gitee.com:x-cmd-sourcecode/$name" 2>&1)
+gt_output=$(git push --all --tags "git@gitee.com:x-cmd-sourcecode/$name" 2>&1)
 gt_rc=$?
 echo "$gt_output" | sed "s/^/  [gitee] /"
 if [ "$gt_rc" = "0" ]; then
