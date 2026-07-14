@@ -25,20 +25,15 @@ jobs:
           # We set up ~/.ssh/id_rsa ourselves in the prehook (same shell as
           # the script, so the file persists).
           prehook: |
-            echo "--- prehook start ---"
-            echo "ssh_key length: ${#ssh_key}"
-            echo "HOME: $HOME"
-            echo "PWD: $PWD"
             mkdir -p ~/.ssh
             printf '%s\n' "$ssh_key" > ~/.ssh/id_rsa
             chmod 600 ~/.ssh/id_rsa
             ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
-            echo "--- after key write ---"
-            ls -la ~/.ssh/
-            echo "id_rsa head:"
-            head -3 ~/.ssh/id_rsa
-            echo "id_rsa tail:"
-            tail -3 ~/.ssh/id_rsa
-            echo "--- ssh -T git@github.com ---"
-            ssh -v -T -o ConnectTimeout=5 -i ~/.ssh/id_rsa git@github.com 2>&1 | grep -E "Authentications|denied|authenticated|publickey|key|Hi " | head -15
+            ssh-keyscan -H gitee.com >> ~/.ssh/known_hosts 2>/dev/null
+            echo "--- test github ---"
+            ssh -T -o ConnectTimeout=5 -i ~/.ssh/id_rsa git@github.com 2>&1 | head -3
+            echo "--- test gitee ---"
+            ssh -T -o ConnectTimeout=5 -i ~/.ssh/id_rsa git@gitee.com 2>&1 | head -3
+            echo "--- test gitee specific repo (write test) ---"
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/id_rsa -o ConnectTimeout=5" git ls-remote git@gitee.com:x-cmd-sourcecode/oh-my-posh.git 2>&1 | head -3
           script: .x-cmd/syncaction
