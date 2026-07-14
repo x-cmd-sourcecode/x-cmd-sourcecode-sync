@@ -16,14 +16,19 @@ jobs:
       git_email: l@x-cmd.com
       CONCURRENCY: 10
     steps:
-      - name: debug-ssh
+      - name: setup-ssh
+        # x-cmd-action has a subshell bug: ___x_cmd_ghaction_init() runs
+        # in a subshell (note the `(` not `{`), so ssh-agent env vars are
+        # lost before the next step runs. Workaround: pre-write the key
+        # to ~/.ssh/id_rsa so subsequent steps can authenticate directly
+        # via the file (no agent needed).
         run: |
-          echo "--- ssh dir ---"
-          ls -la ~/.ssh/ 2>&1 | head -10
-          echo "--- ssh-agent ---"
-          ssh-add -l 2>&1 | head -5
-          echo "--- github ssh test (x-cmd/sourcecode) ---"
-          ssh -v -o StrictHostKeyChecking=no -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -E "Authentications|denied|authenticated|publickey" | head -10
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       - name: main
         uses: x-cmd/action@main
         timeout-minutes: 8
