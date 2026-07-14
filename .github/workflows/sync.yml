@@ -16,25 +16,21 @@ jobs:
       git_email: l@x-cmd.com
       CONCURRENCY: 10
     steps:
-      - name: setup-ssh
-        # x-cmd-action has a subshell bug: ___x_cmd_ghaction_init() runs
-        # in a subshell (note the `(` not `{`), so ssh-agent env vars are
-        # lost before the next step runs. Workaround: pre-write the key
-        # to ~/.ssh/id_rsa so subsequent steps can authenticate directly
-        # via the file (no agent needed).
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       - name: main
         uses: x-cmd/action@main
         timeout-minutes: 8
         with:
-          # Modernized invocation: was `xws syncaction` but `xws` (alias
-          # for `x ws`) was removed from x-cmd. We use the `script:` input
-          # so the action sources the .x-cmd/syncaction file directly out
-          # of the workspace (no shell path wrangling needed).
+          # prehook: x-cmd-action's ___x_cmd_ghaction_init runs in a subshell,
+          # so the ssh-agent env vars it sets are lost before the script runs.
+          # We set up ~/.ssh/id_rsa ourselves in the prehook (same shell as
+          # the script, so the file persists) and verify auth in one go.
+          prehook: |
+            mkdir -p ~/.ssh
+            printf '%s\n' "$ssh_key" > ~/.ssh/id_rsa
+            chmod 600 ~/.ssh/id_rsa
+            ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
+            echo "--- ssh test ---"
+            ssh -T -o ConnectTimeout=5 git@github.com 2>&1 | head -3
+            echo "--- file ---"
+            ls -la ~/.ssh/
           script: .x-cmd/syncaction
