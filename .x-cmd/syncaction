@@ -1,15 +1,18 @@
 
-# Modernized syncaction for x-cmd-action (post-2022 syntax update)
+# Modernized syncaction for x-cmd-action (post-2022)
 #
-# Was: git clone ... && cd sourcecode && xws sync
-#   - `xws` was an alias for `x ws` that no longer exists in current x-cmd
-# Now: clone catalog, iterate lib/* directly, call `x gitb backup` per entry.
-# The catalog's own .x-cmd/sync had a `cd $WSROOT` bug (workspace != catalog
-# dir), so we don't rely on it — re-implement the loop here.
+# Strategy:
+# - Clone the catalog (x-cmd-sourcecode/sourcecode) once
+# - Run backups in parallel via xargs (CONCURRENCY from env, default 10)
+# - GitHub is the primary target; Gitee push failures don't abort the run
+#   (some target repos may not exist on Gitee yet — the user will create
+#   them in batch once they wire up a Gitee API token)
+# - Each entry is a self-contained shell snippet so xargs can fork them
 
 git clone git@github.com:x-cmd-sourcecode/sourcecode.git /tmp/sourcecode
 cd /tmp/sourcecode || exit 1
 
+# Emit one job per lib entry; xargs fans them out.
 for entry in lib/*; do
     [ -f "$entry" ] || continue
     SOURCE_TYPE=
@@ -17,16 +20,26 @@ for entry in lib/*; do
     SOURCE_TGTNAME=
     . "$entry"
 
-    case "$SOURCE_TYPE" in
-        GIT-HTTP)
-            echo "==> backup: $SOURCE_TGTNAME  (from $SOURCE_URL)"
-            x gitb backup "$SOURCE_URL" \
-                "git@gitee.com:x-cmd-sourcecode/$SOURCE_TGTNAME" \
-                "git@github.com:x-cmd-sourcecode/$SOURCE_TGTNAME" \
-                || echo "FAIL: $SOURCE_TGTNAME"
-            ;;
-        *)
-            x:error "Unknown SOURCE_TYPE '$SOURCE_TYPE' in $entry"
-            ;;
-    esac
-done
+    [ "$SOURCE_TYPE" = "GIT-HTTP" ] || {
+        echo "skip (non GIT-HTTP): $entry"
+        continue
+    }
+
+    # Each job is a self-contained snippet; the loop is xargs -d '\n' driven.
+    printf '%s\n' "$SOURCE_TGTNAME|$SOURCE_URL"
+done | xargs -d '\n' -P "${CONCURRENCY:-10}" -I {} sh -c '
+    entry="{}"
+    name="${entry%%|*}"
+    url="${entry#*|}"
+    echo "==> backup: $name  (from $url)"
+    # GitHub target is the primary mirror — always run.
+    x gitb backup "$url" \
+        "git@github.com:x-cmd-sourcecode/$name" \
+        || { echo "FAIL github: $name"; exit 0; }
+    # Gitee target is best-effort: skip if the target repo does not exist on
+    # Gitee (404 from `git push`). We do NOT abort the whole workflow on
+    # Gitee failure — the GitHub mirror is the contract.
+    x gitb backup "$url" \
+        "git@gitee.com:x-cmd-sourcecode/$name" \
+        2>&1 | sed "s/^/  [gitee] /" || echo "  [gitee] skip-or-fail: $name"
+'
