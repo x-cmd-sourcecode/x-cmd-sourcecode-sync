@@ -7,7 +7,7 @@
 # The catalog's own .x-cmd/sync had a `cd $WSROOT` bug (workspace != catalog
 # dir), so we don't rely on it — re-implement the loop here.
 
-git clone git@github.com:x-cmd/sourcecode.git /tmp/sourcecode
+git clone git@github.com:x-cmd-sourcecode/sourcecode.git /tmp/sourcecode
 cd /tmp/sourcecode || exit 1
 
 for entry in lib/*; do
