@@ -29,10 +29,12 @@ cd "$workdir" || exit 1
 
 echo "==> backup: $name  (from $url)"
 
-# Shallow bare clone — tip of every ref, no history. Fast even for huge
-# repos like curl/openssl.
+# Shallow bare clone first (fast initial pull). We then --unshallow below
+# before push so we have full history — required for the
+# 'shallow update not allowed' rejection on Gitee pre-existing mirrors
+# (curl, openssl) and for the 'non-fast-forward' rejection when upstream
+# has moved past our shallow tip (jj on GitHub).
 if ! git clone --depth 1 --bare --no-tags "$url" "$name" 2>/dev/null; then
-    # Fall back to full bare if shallow not allowed by server
     git clone --bare "$url" "$name" 2>/dev/null || {
         echo "FAIL clone: $name  (from $url)"
         cd /; rm -rf "$workdir"; exit 0
@@ -40,10 +42,11 @@ if ! git clone --depth 1 --bare --no-tags "$url" "$name" 2>/dev/null; then
 fi
 cd "$name" || { cd /; rm -rf "$workdir"; exit 0; }
 
-# Fetch all branches/tags shallowly so push --mirror carries them.
-git remote remove origin 2>/dev/null
-git remote add origin "$url"
-git fetch --depth 1 origin "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" 2>/dev/null || true
+# Unshallow so push doesn't get rejected for shallow / non-FF reasons.
+# Skip the fetch refspec — --unshallow already pulls the rest of the
+# history. Fast on incremental runs because the local already has the
+# tip; slower (~5 min for openssl/curl) on a fresh first-time clone.
+git fetch --unshallow origin 2>/dev/null || git remote add origin "$url" && git fetch origin 2>/dev/null || true
 
 # Push to GitHub — the contract. Two separate pushes because git forbids
 # combining --all and --tags. --all (not --mirror) avoids the
